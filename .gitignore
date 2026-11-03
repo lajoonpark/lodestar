@@ -9,3 +9,6 @@ build/
 
 # Agent scratch (screenshots, harness captures)
 .agent_tmp/
+
+# graphify knowledge graph (rebuilt locally)
+graphify-out/
