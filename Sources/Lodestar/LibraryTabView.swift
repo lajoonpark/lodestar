@@ -154,6 +154,8 @@ struct LibraryTabView: View {
                 .padding(.horizontal, 44)
                 .padding(.top, 6)
                 .padding(.bottom, 120)
+                // Row menus are drawn here, above every row, so their buttons get the click.
+                .brassMenuHost()
             }
             .mask(
                 LinearGradient(
@@ -355,8 +357,6 @@ private struct LibraryRow: View {
         .scaleEffect(targeted ? 1.015 : 1)
         .offset(y: hovering ? -2 : 0)
         .padding(.bottom, 6)
-        // The open menu hangs below the row, so the row must sit above the ones that follow.
-        .zIndex(menuOpen ? 5 : 0)
         .contentShape(Rectangle())
         .onHover { pointerInside = $0 }
         .onTapGesture(perform: onSelect)

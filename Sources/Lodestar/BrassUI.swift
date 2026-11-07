@@ -687,9 +687,12 @@ struct BrassMenuItem: Identifiable {
 
 /// A "more" button that opens a brass list of actions: the system menu cannot be restyled.
 ///
-/// The host raises its own row while `isOpen` is true (`.zIndex`), or later siblings paint over
-/// the list. The list opens downward, or upward when the click was low in the window, so it is
-/// never cut off by the edge of a scroll view.
+/// The button does not draw the list itself. A list drawn inside the row hangs outside the row's
+/// hit area, so its buttons never got the click. Instead the open menu is published as a
+/// preference, and an ancestor marked `.brassMenuHost()` draws it above everything it contains,
+/// together with a click catcher that closes it. Every `BrassActionMenu` needs such an ancestor.
+/// The list opens downward, or upward when the click was low in the window, so it is never cut
+/// off by the edge of a scroll view.
 struct BrassActionMenu: View {
     let items: [BrassMenuItem]
     var help = "More"
@@ -722,27 +725,72 @@ struct BrassActionMenu: View {
         .motion(Motion.snap, value: hovering)
         .help(help)
         .accessibilityLabel(help)
-        .overlay(alignment: opensUpward ? .bottomTrailing : .topTrailing) {
-            if isOpen {
-                ZStack(alignment: opensUpward ? .bottomTrailing : .topTrailing) {
-                    Color.clear
-                        .frame(width: 3000, height: 3000)
-                        .contentShape(Rectangle())
-                        .onTapGesture { close() }
-                    list
-                        .offset(y: opensUpward ? -42 : 42)
-                }
-                .transition(.scale(scale: 0.92, anchor: opensUpward ? .bottomTrailing : .topTrailing)
-                    .combined(with: .opacity))
+        .anchorPreference(key: BrassMenuKey.self, value: .bounds) { anchor in
+            guard isOpen else { return nil }
+            let binding = $isOpen
+            return BrassMenuRequest(anchor: anchor, items: items, opensUpward: opensUpward) {
+                withAnimation(Motion.spring) { binding.wrappedValue = false }
             }
         }
     }
+}
 
-    private func close() {
-        withAnimation(Motion.spring) { isOpen = false }
+/// An open `BrassActionMenu`, on its way up to the host that draws it.
+struct BrassMenuRequest {
+    /// The bounds of the "more" button.
+    let anchor: Anchor<CGRect>
+    let items: [BrassMenuItem]
+    let opensUpward: Bool
+    let close: () -> Void
+}
+
+struct BrassMenuKey: PreferenceKey {
+    static var defaultValue: BrassMenuRequest? { nil }
+
+    static func reduce(value: inout BrassMenuRequest?, nextValue: () -> BrassMenuRequest?) {
+        value = value ?? nextValue()
     }
+}
 
-    private var list: some View {
+extension View {
+    /// Draws any open `BrassActionMenu` inside this view on top of all of it. Put it on the
+    /// scrolling content, so the list moves with its row.
+    func brassMenuHost() -> some View {
+        overlayPreferenceValue(BrassMenuKey.self) { request in
+            GeometryReader { proxy in
+                if let request {
+                    let button = proxy[request.anchor]
+                    ZStack {
+                        // Any click outside the list closes it, and does nothing else.
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture(perform: request.close)
+                        BrassMenuList(items: request.items, close: request.close)
+                            .frame(
+                                width: proxy.size.width,
+                                height: proxy.size.height,
+                                alignment: request.opensUpward ? .bottomTrailing : .topTrailing
+                            )
+                            .offset(
+                                x: button.maxX - proxy.size.width,
+                                y: request.opensUpward
+                                    ? button.maxY - 42 - proxy.size.height
+                                    : button.minY + 42
+                            )
+                    }
+                    .transition(.scale(scale: 0.92, anchor: request.opensUpward ? .bottomTrailing : .topTrailing)
+                        .combined(with: .opacity))
+                }
+            }
+        }
+    }
+}
+
+private struct BrassMenuList: View {
+    let items: [BrassMenuItem]
+    let close: () -> Void
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(items) { item in
                 if item.separatorBefore {
@@ -764,6 +812,9 @@ struct BrassActionMenu: View {
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Palette.voidRaised))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.rimStrong, lineWidth: 1))
         .shadow(color: Color.black.opacity(0.6), radius: 26, y: 14)
+        // The empty part of the full-size frame around the list must not swallow clicks meant
+        // for the catcher.
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
