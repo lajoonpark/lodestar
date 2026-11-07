@@ -275,10 +275,12 @@ extension CompassRenderer {
     // MARK: - The hub
 
     /// The centre boss: scratched where a thumb's nail finds it, and a couple of pits.
-    func drawHubWear(in context: CGContext, state: State, metrics: CompassMetrics, boss: CGPath, z: CGFloat) {
+    func drawHubWear(in context: CGContext, state: State, metrics: CompassMetrics, boss: CGPath, height: (CGFloat) -> CGFloat) {
         guard CompassTheme.isWorn else { return }
         let unit = metrics.hubRadius
-        let map: (CGPoint) -> CGPoint = { state.camera.project(x: $0.x, y: $0.y, z: z) }
+        func map(_ point: CGPoint) -> CGPoint {
+            state.camera.project(x: point.x, y: point.y, z: height(hypot(point.x, point.y)))
+        }
         context.saveGState()
         context.addPath(boss)
         context.clip()

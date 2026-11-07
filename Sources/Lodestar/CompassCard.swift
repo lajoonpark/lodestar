@@ -413,101 +413,67 @@ extension CompassRenderer {
 
     // MARK: - Hub
 
-    /// The centre boss: a short brass cylinder standing on the card, with the readout window
-    /// sunk into its top.
-    ///
-    /// It has real height so the lean shows on it. The wall comes into view on the side the case
-    /// tips toward, the top slides against the print, and everything on the top (the readout and
-    /// the ✕) is laid on that face with the camera's own foreshortening instead of being stamped
-    /// flat on the screen.
     func drawHub(in context: CGContext, state: State, metrics: CompassMetrics) {
         let radius = metrics.hubRadius
         let hover = min(1, max(0, state.hubHover))
         let base = metrics.cardDepth
         let top = base + metrics.hubHeight
-        let well = top - metrics.hubHeight * 0.30
+        let shoulder = base + metrics.hubHeight * 0.18
+        let well = base + metrics.hubHeight * 0.42
+        let opening = metrics.hubWindowRadius + radius * 0.075
+        let crown = opening + radius * 0.04
         let camera = state.camera
 
-        drawHubWall(in: context, state: state, metrics: metrics, base: base, top: top)
+        drawHubShadow(in: context, state: state, metrics: metrics)
 
-        let boss = CGMutablePath()
-        boss.addLines(between: circle(radius, state, z: top))
-        boss.closeSubpath()
-        let crown = camera.project(x: 0, y: 0, z: top)
-
-        context.saveGState()
-        context.addPath(boss)
-        if let gradient = CGGradient(
-            colorsSpace: CGColorSpaceCreateDeviceRGB(),
-            colors: [
-                CompassTheme.brassLit.cgColor,
-                CompassTheme.brassMid.cgColor,
-                CompassTheme.brassDark.cgColor,
-                CompassTheme.brassDeep.cgColor,
-            ] as CFArray,
-            locations: [0, 0.34, 0.72, 1]
-        ) {
-            context.clip()
-            context.drawRadialGradient(
-                gradient,
-                startCenter: CGPoint(x: crown.x - radius * 0.34, y: crown.y - radius * 0.42),
-                startRadius: radius * 0.05,
-                endCenter: crown,
-                endRadius: radius * 1.10,
-                options: []
-            )
-            context.resetClip()
-        }
-        context.restoreGState()
-        drawHubWear(in: context, state: state, metrics: metrics, boss: boss, z: top)
-
-        // The turned edge: a bright line on the lit side, the dark outline all the way round.
-        context.saveGState()
-        context.addPath(boss)
-        context.setStrokeColor(NSColor.black.withAlphaComponent(0.55).cgColor)
-        context.setLineWidth(1)
-        context.strokePath()
-        context.restoreGState()
-
-        // The readout window, sunk below the top face.
+        let aperture = CGMutablePath()
+        aperture.addLines(between: circle(opening, state, z: top))
+        aperture.closeSubpath()
         let window = CGMutablePath()
         window.addLines(between: circle(metrics.hubWindowRadius, state, z: well))
         window.closeSubpath()
         context.saveGState()
+        context.addPath(aperture)
+        context.clip()
         context.addPath(window)
-        context.setFillColor(CompassTheme.hubWindow.cgColor)
-        context.fillPath()
-        context.addPath(window)
-        context.setStrokeColor(NSColor.white.withAlphaComponent(0.10 + 0.20 * Double(hover)).cgColor)
-        context.setLineWidth(1)
-        context.strokePath()
-        context.restoreGState()
+        context.clip()
+        if let gradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(),
+            colors: [
+                CompassTheme.hubWindow.cgColor,
+                CompassTheme.hubWindow.cgColor,
+                NSColor.black.cgColor,
+            ] as CFArray,
+            locations: [0, 0.55, 1]
+        ) {
+            context.drawRadialGradient(
+                gradient,
+                startCenter: camera.project(x: radius * 0.10, y: radius * 0.15, z: well),
+                startRadius: 0,
+                endCenter: camera.project(x: 0, y: 0, z: well),
+                endRadius: metrics.hubWindowRadius * 1.05,
+                options: [.drawsAfterEndLocation]
+            )
+        }
 
-        // Everything in the window lies on its floor: map a unit square of card space through the
-        // camera, so the numerals squash and shear with the lean like the rest of the print.
+        // The readout stays on the recessed floor, not on the screen or the brass lip.
         let origin = camera.project(x: 0, y: 0, z: well)
         let unitX = camera.project(x: 1, y: 0, z: well)
         let unitY = camera.project(x: 0, y: 1, z: well)
-        let floor = CGAffineTransform(
+        context.concatenate(CGAffineTransform(
             a: unitX.x - origin.x, b: unitX.y - origin.y,
             c: unitY.x - origin.x, d: unitY.y - origin.y,
             tx: origin.x, ty: origin.y
-        )
-
-        context.saveGState()
-        context.concatenate(floor)
-        let aimed = state.hoveredSlice
-        let readout = aimed.map { String(format: "%02d", $0 + 1) } ?? "–"
+        ))
+        let readout = state.hoveredSlice.map { String(format: "%02d", $0 + 1) } ?? "–"
         drawText(
             readout,
             at: .zero,
             scale: 1,
             font: CompassTheme.serif(radius * 0.62, .semibold),
-            colour: CompassTheme.hubWindowInk,
+            colour: CompassTheme.hubWindowInk.withAlphaComponent(1 - hover),
             in: context
         )
-
-        // Close affordance: an engraved ✕ that appears only when the hub is aimed at.
         if hover > 0.02 {
             let arm = radius * 0.30
             context.rotate(by: hover * .pi / 4)
@@ -521,72 +487,85 @@ extension CompassRenderer {
             context.strokePath()
         }
         context.restoreGState()
+
+        var profile: [(radius: CGFloat, z: CGFloat)] = [(radius, base)]
+        for step in 0...10 {
+            let angle = CGFloat(step) / 10 * .pi / 2
+            profile.append((crown + (radius - crown) * cos(angle), shoulder + (top - shoulder) * sin(angle)))
+        }
+        profile.append((opening, top))
+        profile.append((metrics.hubWindowRadius, well))
+
+        var faces: [(points: [CGPoint], normal: Point3D, depth: CGFloat, band: Int)] = []
+        let segments = 96
+        faces.reserveCapacity((profile.count - 1) * segments)
+        for band in 0..<(profile.count - 1) {
+            let from = profile[band]
+            let to = profile[band + 1]
+            let dr = to.radius - from.radius
+            let dz = to.z - from.z
+            let length = hypot(dr, dz)
+            for step in 0..<segments {
+                let a0 = CGFloat(step) / CGFloat(segments) * 2 * .pi
+                let a1 = CGFloat(step + 1) / CGFloat(segments) * 2 * .pi
+                let mid = (a0 + a1) / 2
+                let normal = camera.rotate(Point3D(x: dz * sin(mid) / length, y: -dz * cos(mid) / length, z: -dr / length))
+                let centre = camera.rotate(Point3D(radius: (from.radius + to.radius) / 2, angle: mid, z: (from.z + to.z) / 2))
+                guard -normal.x * centre.x - normal.y * centre.y + normal.z * (camera.eyeDistance - centre.z) > 0 else { continue }
+                let points = [
+                    Point3D(radius: from.radius, angle: a0, z: from.z),
+                    Point3D(radius: from.radius, angle: a1, z: from.z),
+                    Point3D(radius: to.radius, angle: a1, z: to.z),
+                    Point3D(radius: to.radius, angle: a0, z: to.z),
+                ].map { camera.project($0).point }
+                faces.append((points, normal, centre.z, band))
+            }
+        }
+
+        let shell = CGMutablePath()
+        for face in faces.sorted(by: { $0.depth < $1.depth }) {
+            let isInner = face.band == profile.count - 2
+            let intensity = brassIntensity(face.normal, shine: isInner ? 0.12 : 0.26)
+            let colour = brassColour(intensity * (isInner ? 0.60 : 0.96))
+            fill(face.points, context, colour)
+            // Overlap the mesh edges so antialiasing cannot expose the card between faces.
+            stroke(face.points + [face.points[0]], context, colour, width: 0.45)
+            shell.addLines(between: face.points)
+            shell.closeSubpath()
+        }
+        drawHubWear(in: context, state: state, metrics: metrics, boss: shell) { distance in
+            let t = min(1, max(0, (distance - crown) / (radius - crown)))
+            return shoulder + (top - shoulder) * sqrt(1 - t * t)
+        }
+
+        for step in 0..<segments {
+            let a0 = CGFloat(step) / CGFloat(segments) * 2 * .pi
+            let a1 = CGFloat(step + 1) / CGFloat(segments) * 2 * .pi
+            let mid = (a0 + a1) / 2
+            let normal = camera.rotate(Point3D(x: -sin(mid) * 0.707, y: cos(mid) * 0.707, z: 0.707))
+            let light = min(1, max(0, brassIntensity(normal, shine: 0.18) - 0.25))
+            line(
+                camera.project(Point3D(radius: opening, angle: a0, z: top)).point,
+                camera.project(Point3D(radius: opening, angle: a1, z: top)).point,
+                context,
+                CompassTheme.brassHi.withAlphaComponent(0.12 + light * (0.52 + hover * 0.18)),
+                width: max(0.65, radius * 0.023)
+            )
+        }
     }
 
-    /// The boss's side, and the shadow it throws on the card.
-    ///
-    /// Only the segments facing the viewer are filled, so a level compass shows no wall at all
-    /// and the lean brings it into view on the near side. The quads go into one path and fill
-    /// once, which keeps seams from showing between neighbours.
-    private func drawHubWall(
-        in context: CGContext,
-        state: State,
-        metrics: CompassMetrics,
-        base: CGFloat,
-        top: CGFloat
-    ) {
+    private func drawHubShadow(in context: CGContext, state: State, metrics: CompassMetrics) {
         let radius = metrics.hubRadius
         let lift = metrics.hubHeight
-        let camera = state.camera
-
-        // Light from the upper left, so the shadow falls down and to the right. Layered
-        // offsets stand in for a blur.
-        for (reach, alpha) in [(CGFloat(0.85), CGFloat(0.11)), (CGFloat(0.55), CGFloat(0.11)), (CGFloat(0.25), CGFloat(0.11))] {
-            let shadow = CGMutablePath()
-            shadow.addLines(between: circle(radius * (1 + 0.04 * reach), state, z: base).map {
-                CGPoint(x: $0.x + lift * 0.9 * reach, y: $0.y + lift * 1.2 * reach)
-            })
-            shadow.closeSubpath()
-            context.addPath(shadow)
-            context.setFillColor(NSColor.black.withAlphaComponent(alpha).cgColor)
-            context.fillPath()
+        let base = metrics.cardDepth
+        for step in (1...8).reversed() {
+            let reach = CGFloat(step) / 8
+            let points = circle(radius * (1 + 0.08 * reach), state, z: base).map {
+                CGPoint(x: $0.x + lift * 0.60 * reach, y: $0.y + lift * 0.85 * reach)
+            }
+            fill(points, context, NSColor.black.withAlphaComponent(0.045))
         }
-
-        let steps = 96
-        let wall = CGMutablePath()
-        for step in 0..<steps {
-            let a0 = CGFloat(step) / CGFloat(steps) * 2 * .pi
-            let a1 = CGFloat(step + 1) / CGFloat(steps) * 2 * .pi
-            let mid = (a0 + a1) / 2
-            let facing = camera.rotate(Point3D(x: sin(mid), y: -cos(mid), z: 0)).z
-            guard facing > 1e-4 else { continue }
-            wall.addLines(between: [
-                camera.project(x: radius * sin(a0), y: -radius * cos(a0), z: top),
-                camera.project(x: radius * sin(a1), y: -radius * cos(a1), z: top),
-                camera.project(x: radius * sin(a1), y: -radius * cos(a1), z: base),
-                camera.project(x: radius * sin(a0), y: -radius * cos(a0), z: base),
-            ])
-            wall.closeSubpath()
-        }
-        guard !wall.isEmpty, let gradient = CGGradient(
-            colorsSpace: CGColorSpaceCreateDeviceRGB(),
-            colors: [
-                CompassTheme.brassMid.cgColor,
-                CompassTheme.brassDark.cgColor,
-                CompassTheme.brassDeep.cgColor,
-            ] as CFArray,
-            locations: [0, 0.5, 1]
-        ) else { return }
-        context.saveGState()
-        context.addPath(wall)
-        context.clip()
-        context.drawLinearGradient(
-            gradient,
-            start: CGPoint(x: -radius, y: -radius),
-            end: CGPoint(x: radius, y: radius),
-            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
-        )
-        context.restoreGState()
+        fill(circle(radius * 1.025, state, z: base), context, NSColor.black.withAlphaComponent(0.24))
     }
 
     // MARK: - Opening sweep

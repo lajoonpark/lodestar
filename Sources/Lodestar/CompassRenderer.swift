@@ -426,7 +426,7 @@ private let lidFillLight = unitVector(0.10, 0.78, 0.55)
 private let lidHalfVector = unitVector(lidKeyLight.x, lidKeyLight.y, lidKeyLight.z + 1)
 
 /// How much light a face with this view-space normal catches, 0 to 1.
-private func lidIntensity(_ normal: Point3D, shine: CGFloat) -> CGFloat {
+func brassIntensity(_ normal: Point3D, shine: CGFloat) -> CGFloat {
     let key = max(0, dotProduct(normal, lidKeyLight))
     let fill = max(0, dotProduct(normal, lidFillLight))
     let spec = pow(max(0, dotProduct(normal, lidHalfVector)), 26)
@@ -435,7 +435,7 @@ private func lidIntensity(_ normal: Point3D, shine: CGFloat) -> CGFloat {
 
 /// Brass as a function of how much light it catches. Warm throughout: the highlights stay cream
 /// and the shadows go olive rather than grey.
-private func lidBrass(_ intensity: CGFloat, alpha: CGFloat = 1) -> NSColor {
+func brassColour(_ intensity: CGFloat, alpha: CGFloat = 1) -> NSColor {
     let stops: [(at: CGFloat, r: CGFloat, g: CGFloat, b: CGFloat)] = [
         (0.00, 26, 19, 10), (0.22, 58, 44, 24), (0.42, 96, 74, 40), (0.60, 133, 101, 56),
         (0.78, 179, 145, 90), (0.92, 213, 192, 143), (1.00, 238, 223, 180),
@@ -588,7 +588,7 @@ extension CompassRenderer {
 
     /// A strip of the wall, shoulder or rim: flat colour from the light it catches.
     private func paintLidBand(_ face: LidFace, in context: CGContext) {
-        var intensity = lidIntensity(face.normal, shine: face.kind == .shoulder ? 0.30 : 0.10)
+        var intensity = brassIntensity(face.normal, shine: face.kind == .shoulder ? 0.30 : 0.10)
         switch face.kind {
         case .wall:
             // Milled edge: alternate ridges, with a little unevenness so it is not a printed pattern.
@@ -602,7 +602,7 @@ extension CompassRenderer {
         default:
             break
         }
-        let colour = lidBrass(intensity)
+        let colour = brassColour(intensity)
         fill(face.points, context, colour)
         // The same colour as a hairline: adjacent polygons otherwise leave seams of backdrop.
         stroke(face.points + [face.points[0]], context, colour, width: 0.7)
@@ -617,7 +617,7 @@ extension CompassRenderer {
                  width: max(0.9, radius * 0.006))
         }
         for face in faces where face.kind == .shoulder {
-            let lit = min(1, max(0, lidIntensity(face.normal, shine: 0.5) - 0.35))
+            let lit = min(1, max(0, brassIntensity(face.normal, shine: 0.5) - 0.35))
             line(face.points[3], face.points[2], context,
                  NSColor(calibratedRed: 1, green: 0.953, blue: 0.831, alpha: 0.10 + 0.55 * lit),
                  width: max(0.8, radius * 0.005))
@@ -655,7 +655,7 @@ extension CompassRenderer {
         outline.addLines(between: face.points)
         outline.closeSubpath()
         context.addPath(outline)
-        context.setFillColor(lidBrass(lidIntensity(face.normal, shine: 0.24)).cgColor)
+        context.setFillColor(brassColour(brassIntensity(face.normal, shine: 0.24)).cgColor)
         context.fillPath()
         context.addPath(outline)
         context.clip()
@@ -769,7 +769,7 @@ extension CompassRenderer {
         outline.addLines(between: face.points)
         outline.closeSubpath()
         context.addPath(outline)
-        context.setFillColor(lidBrass(lidIntensity(face.normal, shine: 0.10) * 0.94).cgColor)
+        context.setFillColor(brassColour(brassIntensity(face.normal, shine: 0.10) * 0.94).cgColor)
         context.fillPath()
         context.addPath(outline)
         context.clip()
