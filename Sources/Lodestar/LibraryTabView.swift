@@ -11,6 +11,7 @@ struct LibraryTabView: View {
     var onEdit: (Bookmark) -> Void
 
     @FocusState private var searchFocused: Bool
+    @State private var openMenuID: UUID?
 
     private struct PageSection: Identifiable {
         let id: Int
@@ -130,7 +131,18 @@ struct LibraryTabView: View {
                                 },
                                 onRemove: {
                                     withAnimation(Motion.springSoft) { model.remove(bookmark) }
-                                }
+                                },
+                                menuOpen: Binding(
+                                    get: { openMenuID == bookmark.id },
+                                    set: { open in
+                                        if open {
+                                            openMenuID = bookmark.id
+                                        } else if openMenuID == bookmark.id {
+                                            openMenuID = nil
+                                        }
+                                    }
+                                ),
+                                menuOpenElsewhere: openMenuID != nil && openMenuID != bookmark.id
                             )
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .offset(y: -12)),
@@ -250,11 +262,14 @@ private struct LibraryRow: View {
     /// Another row was dropped here; the argument is its id.
     let onDrop: (UUID) -> Void
     let onRemove: () -> Void
+    @Binding var menuOpen: Bool
+    /// Another row's menu is open and may hang over this one, so this row must stay still and let clicks through.
+    let menuOpenElsewhere: Bool
 
-    @State private var hovering = false
+    @State private var pointerInside = false
     @State private var targeted = false
-    @State private var menuOpen = false
 
+    private var hovering: Bool { pointerInside && !menuOpenElsewhere }
     private var sliceIndex: Int { (slot - 1) % RadialLayout.maxSlicesPerPage }
     private var lit: Bool { hovering || isSelected || menuOpen }
 
@@ -343,7 +358,7 @@ private struct LibraryRow: View {
         // The open menu hangs below the row, so the row must sit above the ones that follow.
         .zIndex(menuOpen ? 5 : 0)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onHover { pointerInside = $0 }
         .onTapGesture(perform: onSelect)
         .reorderable(
             enabled: canReorder,
@@ -370,6 +385,9 @@ private struct LibraryRow: View {
             Divider()
             Button("Remove", role: .destructive, action: onRemove)
         }
+        .allowsHitTesting(!menuOpenElsewhere)
+        // Hover events stop while hit testing is off, so the last one may be stale.
+        .onChange(of: menuOpenElsewhere) { _, _ in pointerInside = false }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Slot \(slot), \(bookmark.displayTitle)")
     }
