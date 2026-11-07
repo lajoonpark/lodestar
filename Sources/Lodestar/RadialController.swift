@@ -10,7 +10,6 @@ final class RadialController {
     private var session: RadialSession
     private let panel = RadialPanel()
     private let menuView = RadialMenuView(frame: .zero)
-    private var previouslyActiveApp: NSRunningApplication?
     /// Bumped on every presentation, so a close animation that finishes after the menu was
     /// reopened cannot tear down the new panel.
     private var presentation = 0
@@ -101,13 +100,9 @@ final class RadialController {
         menuView.layoutSubtreeIfNeeded()
 
         presentation += 1
-        previouslyActiveApp = NSWorkspace.shared.frontmostApplication
-        // A nonactivating panel only receives key events once the app is active. Activating is
-        // invisible here (no Dock icon, no menu bar in accessory mode), and focus is handed
-        // back on dismiss, so the other app keeps its place. The policy is deliberately not
-        // touched: AppDelegate manages it, and forcing `.accessory` here would strip the
-        // manager window's menu bar while it is open.
-        NSApp.activate(ignoringOtherApps: true)
+        // The app is deliberately not activated: the nonactivating panel takes key focus on its
+        // own, so the app you were in stays frontmost and keeps its menu bar. It also means no
+        // Stage Manager stage change, on open or on close.
         panel.alphaValue = 1
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(menuView)
@@ -129,31 +124,15 @@ final class RadialController {
     }
 
     private func tearDown() {
-        // Hand focus back *before* the overlay leaves the screen.
-        //
-        // This ordering is the Stage Manager fix. Ordering the panel out first left this app
-        // active with no visible windows for one run-loop pass, and under Stage Manager that
-        // is a stage with nothing in it — so the system picked another stage and the user was
-        // thrown out of the desktop they were working in ("⌘E while the menu is open switches
-        // me into the working area"). Activating the other app while our overlay is still up
-        // gives the window server a real window to land on, so no stage change is needed.
-        let previous = previouslyActiveApp
-        previouslyActiveApp = nil
-
-        // One of this app's own windows may be open behind the overlay (the manager window).
-        // In that case it is the right thing to land on, and stepping down would be wrong.
-        let ownWindow = NSApp.windows.first { $0.isVisible && $0 !== panel }
-        let canReturn = previous.map { $0.bundleIdentifier != Bundle.main.bundleIdentifier } ?? false
-
-        if ownWindow == nil, canReturn, let previous {
-            previous.activate(options: [])
-        }
+        // The other app never lost active status, so ordering out returns the keyboard to it.
         panel.orderOut(nil)
 
-        if ownWindow == nil, !canReturn {
-            // Nothing to return to: step down rather than stay the active app with an empty
-            // stage. Doing it after `orderOut` is deliberate — deactivating with no windows
-            // and no fallback is the only case where the ordering above cannot help.
+        // Lodestar can already be the active app when summoned, such as just after its manager
+        // window closed. With no window of its own left, step down rather than stay active with
+        // an empty stage, which makes Stage Manager switch stages. This has to come after
+        // `orderOut`, and an open manager window is left alone because it is the right place to land.
+        // The level check skips the menu bar item's window, which is always visible in this list.
+        if NSApp.isActive, !NSApp.windows.contains(where: { $0.isVisible && $0.level < .statusBar }) {
             NSApp.deactivate()
         }
     }

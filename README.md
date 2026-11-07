@@ -171,7 +171,7 @@ Sources/
     main.swift               NSApplication bootstrap
     AppDelegate.swift        menu bar item, windows, wiring
     GlobalHotkey.swift       Carbon RegisterEventHotKey (no Accessibility prompt)
-    RadialPanel.swift        non-activating full-screen overlay
+    RadialPanel.swift        non-activating full-screen overlay (the current app stays active)
     RadialMenuView.swift     drawing + spring animations
     RadialController.swift   panel lifecycle, keyboard routing
     Animation.swift          spring integrator + frame driver

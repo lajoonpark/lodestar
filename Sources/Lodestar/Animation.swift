@@ -118,9 +118,9 @@ final class FrameDriver {
         lastTick = CACurrentMediaTime()
         let timer = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
             guard let self, let tick = self.tick else { return }
-            // Real elapsed time, not the nominal interval. Summoning the menu activates the
-            // app and orders the panel front, and the main run loop can be held off for a few
-            // hundred milliseconds while that happens. Feeding the nominal 1/120 in afterwards
+            // Real elapsed time, not the nominal interval. Summoning the menu orders the panel
+            // front, and the main run loop can be held off for a few hundred milliseconds while
+            // that happens. Feeding the nominal 1/120 in afterwards
             // makes the springs re-live the stall frame by frame: the compass appears, the
             // motion stops, and only then does the lid swing. Measuring the clock instead lets
             // the animation resume exactly where wall-clock time says it should be.
